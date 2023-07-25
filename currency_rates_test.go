@@ -33,7 +33,7 @@ func TestPrintCurrencyRate(t *testing.T) {
 		getCurrencyRate("USD", "2022-10-08")
 	})
 
-	assert.Contains(t, output, "USD (Доллар США): 61,2475")
+	assert.Contains(t, output, "USD (Доллар США): 61.2475")
 }
 
 func captureOutput(f func()) string {

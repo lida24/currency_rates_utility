@@ -4,8 +4,11 @@ import (
 	"encoding/xml"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -25,32 +28,66 @@ type Valute struct {
 	Value    string   `xml:"Value"`
 }
 
-func getCurrencyRate(code string, date string) (string, error) {
+func getCurrencyRate(code string, date string) (float64, error) {
 	url := fmt.Sprintf("https://www.cbr.ru/scripts/XML_daily.asp?date_req=%s", date)
 
 	resp, err := http.Get(url)
 	if err != nil {
-		return "", fmt.Errorf("ошибка при получении данных от ЦБ РФ: %w", err)
+		return 0, fmt.Errorf("ошибка при получении данных от ЦБ РФ: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("ошибка при получении данных от ЦБ РФ: код статуса %d", resp.StatusCode)
+		return 0, fmt.Errorf("ошибка при получении данных от ЦБ РФ: код статуса %d", resp.StatusCode)
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return 0, fmt.Errorf("ошибка при чтении данных: %w", err)
 	}
 
 	var valCurs ValCurs
-	err = xml.NewDecoder(resp.Body).Decode(&valCurs)
+	err = xml.Unmarshal(body, &valCurs)
 	if err != nil {
-		return "", fmt.Errorf("ошибка при парсинге XML-ответа: %w", err)
+		return 0, fmt.Errorf("ошибка при парсинге XML-ответа: %w", err)
 	}
 
 	for _, valute := range valCurs.Valutes {
 		if valute.CharCode == code {
-			return fmt.Sprintf("%s (%s): %s", code, valute.Name, valute.Value), nil
+			value, err := replaceComma(valute.Value)
+			if err != nil {
+				return 0, fmt.Errorf("ошибка при преобразовании значения: %w", err)
+			}
+			return value, nil
 		}
 	}
 
-	return "", fmt.Errorf("валюта с таким кодом не найдена: %s", code)
+	return 0, fmt.Errorf("валюта с таким кодом не найдена: %s", code)
+}
+
+func replaceComma(value string) (float64, error) {
+	replacedValue := value
+
+	if replacedValue == "" {
+		return 0, fmt.Errorf("некорректное значение")
+	}
+
+	replacedValue = replaceDot(replacedValue)
+
+	if replacedValue[len(replacedValue)-3:] == ",00" {
+		replacedValue = replacedValue[:len(replacedValue)-3]
+	}
+
+	val, err := strconv.ParseFloat(replacedValue, 64)
+	if err != nil {
+		return 0, fmt.Errorf("ошибка при преобразовании значения: %w", err)
+	}
+
+	return val, nil
+}
+
+func replaceDot(value string) string {
+	return strings.ReplaceAll(value, ",", ".")
 }
 
 func main() {
@@ -64,7 +101,7 @@ func main() {
 	}
 
 	if *date == "" {
-		*date = time.Now().Format("2006-01-02") // Если дата не указана, используем текущую дату
+		*date = time.Now().Format("2006-01-02")
 	}
 
 	result, err := getCurrencyRate(*code, *date)
